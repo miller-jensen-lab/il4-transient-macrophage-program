@@ -1,0 +1,101 @@
+# ===============================================================================
+# SUPPLEMENTARY TABLE — the stage-1 DEG program, all contrasts
+# ===============================================================================
+# One workbook for the supplement: every gene that is a DEG in at least one
+# condition, with log2 fold-change and adjusted p-value for all six contrasts.
+#
+# MEMBERSHIP CRITERION. A gene is included if it rejects H0: |log2FC| <= log2(1.5)
+# at padj < 0.05 in at least one of the four IL-4-versus-untreated contrasts. That
+# null is tested directly by DESeq2 (results(lfcThreshold = log2(1.5)), the TREAT
+# approach of McCarthy & Smyth 2009) rather than by filtering point estimates, so
+# the reported FDR covers the fold-change claim itself. Because the null is the
+# 1.5-fold boundary, every gene here necessarily has |log2FC| > 0.585 in whichever
+# contrast made it significant.
+#
+# The two pulse-vs-continuous contrasts are reported for every gene but do NOT
+# affect membership, and they are tested against the conventional null of no
+# difference (no fold-change threshold), because they ask whether the conditions
+# differ at all rather than whether they differ by more than a set amount.
+#
+# Input : data/deg_program.csv   (from 01)
+# Output: results/SupplementaryTable_DEG_program.xlsx
+# ===============================================================================
+
+suppressPackageStartupMessages(library(openxlsx))
+
+PADJ <- 0.05
+FC   <- 1.5
+
+data_dir <- file.path(getwd(), "data")
+out_dir  <- file.path(getwd(), "results")
+if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
+
+d <- read.csv(file.path(data_dir, "deg_program.csv"), stringsAsFactors = FALSE)
+
+# The four membership contrasts, then the two direct ones, with reader-facing names.
+vs_ctrl <- c(p100_4h  = "Pulsed IL-4, 4h",       p100_24h = "Pulsed IL-4, 24h",
+             c100_4h  = "Continuous IL-4, 4h",   c100_24h = "Continuous IL-4, 24h")
+direct  <- c(pvc_4h   = "Pulsed vs continuous, 4h",
+             pvc_24h  = "Pulsed vs continuous, 24h")
+
+sig <- function(k) { q <- d[[paste0("padj_", k)]]; !is.na(q) & q < PADJ }
+
+# Which contrasts made each gene a DEG, so a reader can filter without re-deriving.
+hits <- vapply(names(vs_ctrl), sig, logical(nrow(d)))
+stopifnot(all(rowSums(hits) >= 1))          # membership invariant, by construction
+significant_in <- apply(hits, 1, function(r) paste(vs_ctrl[r], collapse = "; "))
+
+out <- data.frame(
+  ensembl_gene_id = d$ensembl_gene_id,
+  gene_symbol     = d$gene_symbol,
+  n_contrasts_significant = rowSums(hits),
+  significant_in  = significant_in,
+  stringsAsFactors = FALSE)
+
+for (k in c(names(vs_ctrl), names(direct))) {
+  lab <- c(vs_ctrl, direct)[[k]]
+  out[[paste0("log2FC: ", lab)]] <- round(d[[paste0("log2fc_", k)]], 4)
+  out[[paste0("padj: ",   lab)]] <- signif(d[[paste0("padj_",   k)]], 3)
+}
+
+out <- out[order(out$gene_symbol, out$ensembl_gene_id), ]
+
+# ---- legend sheet, so the file is self-describing away from the repo -----------
+legend <- data.frame(Field = c(
+  "Contents", "Inclusion criterion", "Statistical test", "Consequence",
+  "Direct contrasts", "Gene universe", "Expression filter", "Design",
+  "log2FC sign (vs untreated)", "log2FC sign (pulsed vs continuous)",
+  "NA values", "Software", "Source"),
+  Description = c(
+  sprintf("%d genes differentially expressed by IL-4 in at least one condition, with log2 fold-change and Benjamini-Hochberg adjusted p-value for all six contrasts.", nrow(out)),
+  sprintf("padj < %.2f in at least one of the four IL-4-versus-untreated contrasts.", PADJ),
+  sprintf("DESeq2 Wald test of H0: |log2FC| <= log2(%.1f), i.e. the response is no larger than %.1f-fold (TREAT; McCarthy & Smyth 2009). The fold-change requirement is inside the null, not applied afterwards as a filter, so the reported FDR covers the magnitude claim.", FC, FC),
+  sprintf("Every gene listed necessarily has |log2FC| > %.3f in whichever contrast made it significant; no separate fold-change filter was applied.", log2(FC)),
+  "The two pulsed-vs-continuous columns are reported for all genes but do not affect inclusion, and are tested against the conventional null of no difference (no fold-change threshold).",
+  "Protein-coding genes only, by Ensembl release 110 gene_biotype (the release the reads were aligned to).",
+  ">=10 counts in >=3 samples, applied across all samples before dispersion estimation.",
+  "Two independent experiments (4h and 24h), each with its own untreated control, n=3 per condition, IL-4 at 100 ng/mL. Modelled separately; the 4h model includes a batch term.",
+  "Positive = higher under IL-4 than untreated.",
+  "Positive = higher under the pulse than under continuous IL-4.",
+  "padj is NA where DESeq2's independent filtering excluded the gene from that contrast; log2FC is NA where the effect was not estimable.",
+  sprintf("R %s.%s, DESeq2.", R.version$major, R.version$minor),
+  "Generated by scripts/08_supplementary_deg_table.R"),
+  stringsAsFactors = FALSE)
+
+wb <- createWorkbook()
+addWorksheet(wb, "Legend");  writeData(wb, "Legend", legend)
+addWorksheet(wb, "DEG program"); writeData(wb, "DEG program", out)
+setColWidths(wb, "Legend", cols = 1:2, widths = c(30, 120))
+setColWidths(wb, "DEG program", cols = 1:ncol(out), widths = "auto")
+freezePane(wb, "DEG program", firstActiveRow = 2, firstActiveCol = 3)
+addStyle(wb, "DEG program", createStyle(textDecoration = "bold"),
+         rows = 1, cols = 1:ncol(out), gridExpand = TRUE)
+addStyle(wb, "Legend", createStyle(wrapText = TRUE, valign = "top"),
+         rows = 2:(nrow(legend) + 1), cols = 2, gridExpand = TRUE)
+
+f <- file.path(out_dir, "SupplementaryTable_DEG_program.xlsx")
+saveWorkbook(wb, f, overwrite = TRUE)
+cat(sprintf("Saved: results/SupplementaryTable_DEG_program.xlsx  (%d genes x %d contrasts)\n",
+            nrow(out), length(vs_ctrl) + length(direct)))
+cat(sprintf("  significant in 1 / 2 / 3 / 4 of the vs-untreated contrasts: %s\n",
+            paste(table(factor(out$n_contrasts_significant, levels = 1:4)), collapse = " / ")))

@@ -1,0 +1,36 @@
+# Generated outputs (regenerate by running the scripts)
+results/
+
+# macOS
+.DS_Store
+
+# Excel lock files (created when a workbook in data/ is opened; never commit)
+~$*
+**/~$*
+
+# R / RStudio
+.Rapp.history
+.Rhistory
+.RData
+Rplots.pdf
+
+# Manuscript revision working documents — drafted Methods, figure legends and
+# interpretation notes. Deliberately kept OUT of the public deposit: they contain
+# working commentary on which claims are strong or weak, which is useful for
+# writing the paper and misleading out of context. Files stay on disk.
+revision/
+
+# Claude Code
+.claude/
+
+# Large / regenerable data (regenerate: scripts/00 from the GEO counts, then 01)
+data/dds_*.rds
+data/vst_*.csv
+data/master_expressed_genes.csv
+
+# Raw counts input — download from GEO GSE322520 (too large to version here)
+data/GSE322520_*.txt
+
+# Ensembl GTF (annotation source; parsed into data/ensembl110_gene_map.csv, which IS committed)
+data/*.gtf
+data/*.gtf.gz
